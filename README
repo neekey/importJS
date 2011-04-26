@@ -1,0 +1,25 @@
+/**
+ * 纯客户端的 JavaScript import 实现
+ * 
+ * @author Neekey <ni184775761@gmail.com>
+ * @version 1.0.0 beta release
+ * javascript&import功能的实现
+ * 思路：
+ * 			主要通过将所有需要包含的js文件异步加载，然后对加载的脚本进行分析，若脚本中包含对其
+ *		他脚本文件的导入，则再异步加载其他文件，直到所有文件都下载完毕后，对代码重新进行组织，最
+ *		后通过动态添加<script>标签，并设置其text属性实现代码的执行
+ * @example
+ * 	<script src='import.js'></script>
+ * 	<script>
+ * 		import.load(['a.js', 'b.js', 'c.js'， rehandleCallback]).load(['d.js']);
+ * 	</script>
+ * 	
+ * 	文件a.js 可以利用以下方式导入其他文件：
+ * 		//@import(../d.js)
+ * 		someting code.....
+ * 	
+ * 关于@预处理函数：
+ *			主要提供一个自定接口. 比如 想在自己的脚本中通过其他方式如： load.model('ajax'); 
+ *		来载入一个 model/ajax.js 文件。那么在预处理函数中，用户可以自己预检测脚本中是否含有
+ *		"load.model('ajax');", 如果有，那么在脚本开头添加 “@import(model/ajax.js)
+ */
