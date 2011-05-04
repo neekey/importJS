@@ -2,22 +2,40 @@
  * 纯客户端的 JavaScript import 实现
  * 
  * @author Neekey <ni184775761@gmail.com>
- * @version 1.0.0 beta release
+ * @version 1.0.1.20110504 beta release
  * javascript&import功能的实现
  * 思路：
  * 			主要通过将所有需要包含的js文件异步加载，然后对加载的脚本进行分析，若脚本中包含对其
  *		他脚本文件的导入，则再异步加载其他文件，直到所有文件都下载完毕后，对代码重新进行组织，最
  *		后通过动态添加<script>标签，并设置其text属性实现代码的执行
+ *
  * @example
+ * -----------------------------------------------------------------------------
  * 	<script src='import.js'></script>
  * 	<script>
- * 		import.load(['a.js', 'b.js', 'c.js'， rehandleCallback]).load(['d.js']);
+ * 		import.load(['a.js', 'b.js', 'c.js'],  rehandleCallback).load(['d.js']);
  * 	</script>
- * 	
- * 	文件a.js 可以利用以下方式导入其他文件：
- * 		//@import(../d.js)
+ *
+ * -----------------------------------------------------------------------------
+ * 	在文件a.js 可以利用以下方式导入其他文件：
+ * 		//@import(../d.js).viewHandle	
+ *		// viewHandle 与上面的 rehandleCallback功能一致，预处理函数的定义见下面的配置
+ *
+ *		//@import(e.js)
  * 		someting code.....
  * 	
+ * -----------------------------------------------------------------------------
+ * 配置：
+ *	importJS.config({
+ *		basePath: 'http://neekey.net/',
+ *		customCallback: {
+ *			viewHandle: function(script){
+ *				return 'alert("this is a handled script!")' + script;
+ *			}
+ *		}
+ *	}
+ *
+ * -----------------------------------------------------------------------------
  * 关于@预处理函数：
  *			主要提供一个自定接口. 比如 想在自己的脚本中通过其他方式如： load.model('ajax'); 
  *		来载入一个 model/ajax.js 文件。那么在预处理函数中，用户可以自己预检测脚本中是否含有
@@ -31,8 +49,9 @@
  * @constructor 
  */
 var importJS = function(){
-    /** @type {Regexp} 用于匹配import语句的正则表达式 例如： //@import(test.js) */
-    var IMPORT_EX = /\/\/@import\(([a-zA-Z0-9_.\/]+)\)/g,
+    /** @type {Regexp} 用于匹配import语句的正则表达式 例如： //@import(test.js) 
+    	或者 //@import(test.js).handle */
+    var IMPORT_EX = /\/\/@import\(([a-zA-Z0-9_.\/]+)\)(.([a-zA-Z0-9_]+))?/g,
     /** @type {Regexp} 用于匹配绝对路径，主要为http和https */
     URL_EX = /^http\:\/\/.+$|^https\:\/\/.+$/,
     /** @type {Object} 对于当前上下文（this）的闭包 */
@@ -48,7 +67,7 @@ var importJS = function(){
     },
     /** @type {Regexp} 基地值，也就是import.load方法被调用页面的基地址 例如：
     	http://google.com/ig -> http://google.com/ path的后面请永远跟着‘/’ */
-    BASE_PATH = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1),
+    BASE_PATH = this.basePath,
     
    /*
     * AJAX
@@ -60,7 +79,8 @@ var importJS = function(){
     */
     httpRequest = function(url, callback, userData) {
       	// 创建XMLHttpRequest对象
-      	var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+      	var xhr = window.XMLHttpRequest ? 
+      		new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
       	// 设置回调
       	xhr.onreadystatechange = function() {
 			if (xhr.readyState == 4) {
@@ -130,7 +150,8 @@ var importJS = function(){
        		// 保存网址协议部分， 以备最后重新构造url的时候使用
        		var httpStr = localPath.substring(0, localPath.indexOf("://") + 3);
        		// 将网址中的协议部分和最后的文件部分去掉 包括最后的‘/’
-       		localPath = localPath.substring(localPath.indexOf("://") + 3, localPath.lastIndexOf("/"));
+       		localPath = localPath.substring(
+       			localPath.indexOf("://") + 3, localPath.lastIndexOf("/"));
        		// 利用“/”将url分割
        		var localArray = localPath.split("/");
        		var urlArray = url.split("/");
@@ -178,23 +199,30 @@ var importJS = function(){
     	if(err === undefined && _this.jsList[filePath].handle){
     		data = _this.jsList[filePath].handle(data);
     	}
-      	var offset = 0, i, loadFilePath,
+      	var offset = 0, i, loadFilePath, 
+      		// 新下载文件的预处理函数标识符
+      		loadFileHandle,
 		  	// 对脚本进行分段
 		  	scriptList = data.split(IMPORT_EX),
 		  	// 该文件中import的文件数组
+		  	// [['test.js', 'viewHandle']]
 		  	loadList = [];
 		  	// 获取脚本中以及需要导入的文件
-      	for(i = 1; scriptList[i]; i += 2){
+      	for(i = 1; scriptList[i]; i += 4){
       		// 将路径转化为绝对路径
       		loadFilePath = handleUrl(scriptList[i], filePath);
+      		loadFileHandle = scriptList[i + 2];
+      		// 将handle部分置空
+      		scriptList[i + 1] = scriptList[i + 2] = '';
+      		// 设置新的须下载文件的绝对路径
       		scriptList[i] = loadFilePath;
-			loadList.push(loadFilePath);
+			loadList.push([loadFilePath, loadFileHandle]);
       	}
       	// 去除代码中的无用成员 ''
       	for(i = 0; i < scriptList.length; i++){
 			if(scriptList[i] == ''){
-	  			scriptList.splice(i - offset, 1);
-	  			offset++;
+	  			scriptList.splice(i, 1);
+	  			i--;
 			}
      	}
      	// 更新脚本列表和下载列表状态
@@ -206,7 +234,9 @@ var importJS = function(){
       	// 继续下载文件
       	else {
 			for(i = 0; loadList[i]; i++){
-	  			getScript(loadList[i], handleScript);
+	  			getScript(
+	  				loadList[i][0], handleScript, 
+	  				_this.customCallback[loadList[i][1]]);
 			}
       	}
     },
@@ -232,6 +262,7 @@ var importJS = function(){
      */
     updateScriptList = function(scriptList, loadList, scriptPath, scriptContent){
       	var i, j, k, offset = 0,  
+      		// 用于方便判断scriptList中是否有需要载入的部分 -> "test.js,a@@aaaa.js,b"
       		loadListStr = loadList.join('@@'),
       		completed = true;
       	// 更新下载列表项的状态
@@ -252,7 +283,7 @@ var importJS = function(){
 	    			_this.scriptList.splice(i, 1);
 	    			// 插入新的内容
 	    			for(j = 0; scriptList[j]; j++){
-	      				if(loadListStr.indexOf(scriptList[j]) >= 0){
+	      				if(loadListStr.indexOf(scriptList[j] + ',') >= 0){
 							_this.scriptList.splice(i, 0, [scriptList[j]]);
 	      				}
 	      				else{
@@ -273,11 +304,7 @@ var importJS = function(){
 			}
       	}
       	return completed;
-    },
-    log = function(logInfo){
-    	console.log(logInfo);
     };
-    
     /**
      * 载入文件
      *
@@ -337,6 +364,41 @@ importJS.prototype = /** @lends importJS.prototype */{
 	 * @type {string}
 	 */
 	script: '',
+	/*
+	 * 默认的基地值
+	 * @type {String} 
+	 */
+	basePath: window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1),
+	/**
+     * 配置函数
+     * @param {Object} cfg 配置参数
+     * @example 
+     *		{
+     *			basePath: 'http://neekey.net',
+     *			customCallback: {
+     *				viewHandle: function(){}
+     *			}
+     *		}
+     */
+    config: function(cfg){
+    	var fnName;
+    	this.basePath = this.basePath || cfg.basePath;
+    	if(cfg.customCallback){
+    		for(fnName in cfg.customCallback){
+    			this.customCallback[fnName] = cfg.customCallback[fnName];
+    		}
+    	}
+    },
+    /**
+	 * 用户自定义预处理函数
+	 * 用户可以通过importJS.config() 对自定义函数进行配置
+	 * @type {Object[fn]}
+	 * @example
+	 *		{
+	 *			viewHandle: function(){}
+	 *		}
+	 */
+	customCallback: {},
 	/**
 	 * 运行 script
 	 */
@@ -345,7 +407,10 @@ importJS.prototype = /** @lends importJS.prototype */{
 		var scr = document.createElement('script');
 		scr.type= "text/javascript" ;
 		scr.text= _this.script;
+		// 添加节点到head
 		document.getElementsByTagName("head")[0].appendChild(scr);
+		// 删除节点
+		document.getElementsByTagName("head")[0].removeChild(scr);
 	}
 }
 window.importJS = new importJS();
